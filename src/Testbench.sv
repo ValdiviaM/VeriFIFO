@@ -1,3 +1,91 @@
+interface IF_dut #(parameter DataWidth = 32) (input bit clk);
+    logic                 push;      
+    logic [DataWidth-1:0] Din;      
+    logic                 pop;      
+    logic [DataWidth-1:0] Dout;     
+    logic                 pndng;     
+    logic                 full;      
+    logic                 rst;       
+endinterface //IF_dut   
+
+class Driver;
+    virtual IF_dut vif;
+    event drv_done;
+    mailbox drv_mbx;
+
+    task automatic run();
+        $display("T=%0t [Driver] starting ...", $time);
+        @(posedge vif.clk);
+
+        forever begin
+            pkt2 pkt;
+
+            $display("T=%0t [Driver] waiting for item ...",$time);
+
+            drv_mbx.get(pkt);
+            pkt.print("Driver");
+
+            vif.push <= pkt.push;        
+            vif.Din <= pkt.Din;          
+            vif.pop <= pkt.pop;          
+
+            @(posedge vif.clk);
+
+            vif.Din <= 0;                
+            vif.push <= 0;               
+            vif.pop <= 0;                
+
+            ->drv_done;  
+        end
+    endtask
+endclass //Driver
+
+class pkt1;
+    rand string mode;
+    rand int num_transactions;
+    rand int min_delay;
+    rand int max_delay;
+    rand bit enable_back_pressure;
+    int fifo_depth;  
+    
+    string mode_list[] = {
+        "WRITE_UNTIL_FULL",
+        "READ_UNTIL_EMPTY", 
+        "WR_AT_THE_SAME_TIME",
+        "WR_RANDOM_VALUES",
+        "WRITE_RANDOM",
+        "READ_RANDOM"
+    };
+    
+    // Simple constraints
+    constraint c_mode {
+        mode inside {mode_list};
+    }
+    
+    constraint c_transactions {
+        num_transactions inside {[10:50]};
+    }
+    
+    constraint c_delays {
+        min_delay inside {[0:2]};
+        max_delay inside {[1:5]};
+        max_delay > min_delay;
+    }
+    
+    constraint c_back_pressure {
+        enable_back_pressure dist {0 := 30, 1 := 70}; 
+    }
+    
+    function new();
+        fifo_depth = 16;  
+    endfunction
+    
+    function void print(string tag = "pkt1");
+        $display("T=%0t [%s] mode=%s, num_trans=%0d, delay=[%0d:%0d], back_pressure=%0b", 
+                $time, tag, mode, num_transactions, min_delay, max_delay, enable_back_pressure);
+    endfunction
+endclass
+
 class Generator;
     mailbox drv_mbx;
     event drv_done;
@@ -163,3 +251,95 @@ class Generator;
     endtask
 
 endclass //Generator
+
+// You'll also need to update your pkt2 class to match:
+
+class test;
+    // Environment components (would be instantiated in full testbench)
+    Generator g0;
+    mailbox gen_mbx;      // Generator -> Driver
+    mailbox scb_mbx;      // Test -> Scoreboard  
+    event gen_done;       // Driver done event
+    
+    function new();
+        g0 = new();
+        gen_mbx = new();
+        scb_mbx = new();
+    endfunction
+    
+    task run();
+        $display("T=%0t [Test] Starting FIFO test", $time);
+        
+        // Configure and start generator
+        fork
+            configure_and_run_generator();
+            configure_scoreboard();
+        join
+        
+        $display("T=%0t [Test] Test completed", $time);
+    endtask
+    
+    // Configure generator with pkt1 and start it
+    task configure_and_run_generator();
+        pkt1 gen_config = new();
+        
+        // Randomize test configuration
+        if (!gen_config.randomize()) 
+            $fatal("Failed to randomize generator config");
+        
+        gen_config.print("Test->Gen");
+        
+        // Connect and run generator
+        g0.pkt_in = gen_config;
+        g0.drv_mbx = gen_mbx;
+        g0.drv_done = gen_done;
+        
+        $display("T=%0t [Test] Starting generator with mode: %s", $time, gen_config.mode);
+        g0.run();
+    endtask
+    
+    // Send configuration to scoreboard
+    task configure_scoreboard();
+        pkt3 scb_config = new();
+        
+        // Simple scoreboard configuration
+        scb_config.report_type = "FULL";
+        scb_config.enable_coverage = 1;
+        scb_config.print_transactions = 1;
+        
+        $display("T=%0t [Test] Sending config to scoreboard", $time);
+        scb_mbx.put(scb_config);
+    endtask
+    
+endclass
+
+// Sample testbench connection:
+module tb_fifo;
+    bit clk;
+    
+    // Clock generation
+    always #5 clk = ~clk;
+    
+    // Interface instance
+    IF_dut #(.DataWidth(32)) dut_if(clk);
+    
+    // DUT instance with updated port connections
+    fifo_flops #(
+        .depth(16),
+        .bits(32)
+    ) dut (
+        .Din(dut_if.Din),
+        .Dout(dut_if.Dout),
+        .push(dut_if.push),
+        .pop(dut_if.pop),
+        .clk(clk),
+        .full(dut_if.full),
+        .pndng(dut_if.pndng),
+        .rst(dut_if.rst)
+    );
+    
+    initial begin
+        // Your test here
+    end
+    
+endmodule

@@ -1,5 +1,3 @@
-`include "./src/IF_dut.sv"
-
 class Driver;
     virtual IF_dut vif;
     event drv_done;
@@ -17,15 +15,15 @@ class Driver;
             drv_mbx.get(pkt);
             pkt.print("Driver");
 
-            vif.writeEn <= pkt.writeEn;
-            vif.writeData <= pkt.writeData;
-            vif.readEn <= pkt.readEn;
+            vif.push <= pkt.push;        
+            vif.Din <= pkt.Din;          
+            vif.pop <= pkt.pop;          
 
             @(posedge vif.clk);
 
-            vif.writeData <= 0;
-            vif.writeEn <= 0;
-            vif.readEn <= 0;
+            vif.Din <= 0;                
+            vif.push <= 0;               
+            vif.pop <= 0;                
 
             ->drv_done;  
         end
