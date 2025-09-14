@@ -1,22 +1,8 @@
-// ===========================================================
-// Checker / Scoreboard minimal (alineado a tu monitor y DUT)
-// - Recibe pkt2 (monitor->checker) en mon2scb (1 ítem por ciclo)
-// - Recibe pkt3 (test->checker) en cmd2scb (para "reporte_completo")
-// - Modelo de referencia: cola con el dato más viejo en índice 0
-// - Reglas DUT (resumidas):
-//     * PUSH: agrega al fondo; si está LLENA -> descarta el más viejo y agrega Din
-//     * POP : saca el más viejo si no está vacía; si vacía -> underflow (sin cambio)
-//     * BOTH: POP (si hay) y luego PUSH
-//     * IDLE: todo estable
-//     * Flags comparadas contra POST-estado (tu monitor ya alinea timing)
-//     * Dout comparado contra head POST-estado si pndng==1
-// ===========================================================
 class checker_scoreboard #(parameter int bits=32, parameter int DEPTH=16);
   // Mailboxes
   mailbox mon2scb;  // pkt2 del monitor
-  mailbox cmd2scb;  // pkt3 del test (reporte)
+  mailbox cmd2scb;  // pkt3 del test 
 
-  // Modelo de referencia
   bit [bits-1:0] ref_q[$]; // más viejo en ref_q[0]
 
   // Estadísticas
@@ -36,7 +22,6 @@ class checker_scoreboard #(parameter int bits=32, parameter int DEPTH=16);
     join_none
   endtask
 
-  // ---- Comandos (pkt3) ----
   task consume_cmds();
     pkt3 cmd;
     forever begin
@@ -45,7 +30,6 @@ class checker_scoreboard #(parameter int bits=32, parameter int DEPTH=16);
     end
   endtask
 
-  // ---- Observaciones del monitor (pkt2) ----
   task consume_pkt2();
     pkt2#(bits) it;
     forever begin
@@ -78,18 +62,16 @@ class checker_scoreboard #(parameter int bits=32, parameter int DEPTH=16);
       end
 
       // =========== OPERACIONES (PUSH / POP / BOTH) ===========
-      // 1) POP si aplica
+
       if (do_pop) begin
         if (occ_pre > 0) begin
           void'(ref_q.pop_front());
-          occ_pre--; // seguimos usando occ_pre como "estado actual" mientras aplicamos ops
+          occ_pre--; 
         end else begin
           n_underflw++;
-          // Modelo no cambia
         end
       end
 
-      // 2) PUSH si aplica
       if (do_push) begin
         if (occ_pre < DEPTH) begin
           ref_q.push_back(it.Din);
@@ -144,3 +126,4 @@ class checker_scoreboard #(parameter int bits=32, parameter int DEPTH=16);
     $display("==============\n");
   endfunction
 endclass
+
